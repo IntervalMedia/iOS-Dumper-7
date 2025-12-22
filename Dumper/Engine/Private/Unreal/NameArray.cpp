@@ -46,67 +46,42 @@ void FNameEntry::Init(const uint8* FirstChunkPtr, int64 NameEntryStringOffset)
         constexpr uint16 BytePropertyStrLen = 0xC; // Length of "ByteProperty"
         constexpr uint32 BytePropertyStartAsUint32 = 'etyB'; // "Byte"
 
-        const uint8* ChunkData = FirstChunkPtr;
-        
-        // Scan for "ByteProperty" to auto-detect headers
-        const uint8* AssumedBytePropertyEntry = ChunkData + NameEntryStringOffset + NoneStrLen;
-        bool bFoundByteProperty = false;
+        Off::FNameEntry::NamePool::StringOffset = (int32)NameEntryStringOffset;
+        Off::FNameEntry::NamePool::HeaderOffset = (int32)NameEntryStringOffset == 6 ? 4 : 0;
+ 
+        const uint8* AssumedBytePropertyEntry = *reinterpret_cast<uint8* const*>(FirstChunkPtr) + NameEntryStringOffset + NoneStrLen;
 
-        // Try to find "ByteProperty" within a small window (padding checks)
+        /* Check if there's pading after an FNameEntry. Check if there's up to 0x8 bytes padding. */
         for (int i = 0; i < 0x8; i++)
         {
             if (IsBadReadPtr(AssumedBytePropertyEntry + NameEntryStringOffset)) break;
-
             const uint32 FirstPartOfByteProperty = *reinterpret_cast<const uint32*>(AssumedBytePropertyEntry + NameEntryStringOffset);
 
-            if (FirstPartOfByteProperty == BytePropertyStartAsUint32) {
-                bFoundByteProperty = true;
+            if (FirstPartOfByteProperty == BytePropertyStartAsUint32)
                 break;
-            }
+
             AssumedBytePropertyEntry += 0x1;
         }
 
-        // Default to safe values if scan fails
-        int32 DetectedHeaderSize = 2;
-        int32 DetectedShift = 6;
+        uint16 BytePropertyHeader = *reinterpret_cast<const uint16*>(AssumedBytePropertyEntry + Off::FNameEntry::NamePool::HeaderOffset);
 
-        if (bFoundByteProperty && !IsBadReadPtr(AssumedBytePropertyEntry + Off::FNameEntry::NamePool::HeaderOffset))
+        /* Shifiting past the size of the header is not allowed, so limmit the shiftcount here */
+        constexpr int32 MaxAllowedShiftCount = sizeof(BytePropertyHeader) * 0x8;
+        LogInfo("Dumper-7: MaxAllowedShiftCount %d", MaxAllowedShiftCount);
+        LogInfo("Dumper-7: BytePropertyHeader %d", BytePropertyHeader);
+        while (BytePropertyHeader != BytePropertyStrLen && FNameEntryLengthShiftCount < MaxAllowedShiftCount)
         {
-            uint16 Header = *reinterpret_cast<const uint16*>(AssumedBytePropertyEntry + Off::FNameEntry::NamePool::HeaderOffset);
-            
-            if ((Header >> 5) == BytePropertyStrLen)
-            {
-                DetectedShift = 5;
-                DetectedHeaderSize = 2;
-                LogSuccess("Dumper-7: Detected UE 5.6+ FName Layout (Shift: 5)");
-            }
-            else if ((Header >> 6) == BytePropertyStrLen)
-            {
-                DetectedShift = 6;
-                DetectedHeaderSize = 2;
-                LogSuccess("Dumper-7: Detected Standard FName Layout (Shift: 6)");
-            }
-            else if ((Header >> 1) == BytePropertyStrLen)
-            {
-                DetectedShift = 1;
-                DetectedHeaderSize = 2;
-                LogSuccess("Dumper-7: Detected Obfuscated FName Layout (Shift: 1)");
-            }
-            else
-            {
-                LogInfo("Dumper-7: [Warning] FName shift detection failed. Header value: 0x%X. Defaulting to Shift 6.", Header);
-            }
-        }
-        else
-        {
-            LogInfo("Dumper-7: [Warning] 'ByteProperty' not found for FName scan. Using defaults.");
+            FNameEntryLengthShiftCount++;
+            BytePropertyHeader >>= 1;
         }
 
-        // Apply detected values
-        FNameEntryLengthShiftCount = DetectedShift;
-        Off::FNameEntry::NamePool::HeaderOffset = 0;
-        Off::FNameEntry::NamePool::StringOffset = DetectedHeaderSize;
-        Off::InSDK::NameArray::FNameEntryStride = DetectedHeaderSize;
+        if (FNameEntryLengthShiftCount == MaxAllowedShiftCount)
+        {
+            LogError("\nDumper-7: Error, couldn't get FNameEntryLengthShiftCount!\n");
+            LogError("Dumper-7: FNameEntryLength %d | MaxAllowedShiftCount %d", FNameEntryLengthShiftCount, MaxAllowedShiftCount);
+            GetStr = [](uint8* NameEntry) -> UnrealString { return TEXT("Invalid FNameEntryLengthShiftCount!"); };
+            return;
+        }
 
         LogSuccess("Dumper-7: [FNameEntry] NamePool initialized (Shift: %d, Stride: %d)", FNameEntryLengthShiftCount, Off::InSDK::NameArray::FNameEntryStride);
 
@@ -251,17 +226,16 @@ bool NameArray::InitializeNamePool(uint8* NamePool)
     Off::NameArray::ChunksStart = 0x10;
 
     bool bWasMaxChunkIndexFound = false;
-    
     // Basic pointer check
     if (IsBadReadPtr(NamePool)) {
         LogError("Invalid NamePool pointer");
         return false;
     }
 
-    // usually at iOS it is located at 0xD0 after the pthread_rwlock_t Lock;
+    // usually at iOS it is MaxBlockOffsets (ChunkStart) is located at 0xD0
     for (int i = 0x0; i < 0x200; i += 4)
     {
-        if (IsBadReadPtr(NamePool + i)) continue;
+        if (IsBadReadPtr(NamePool + i)) break;
 
         const int32 PossibleMaxChunkIdx = *reinterpret_cast<int32*>(NamePool + i);
 
@@ -271,7 +245,9 @@ bool NameArray::InitializeNamePool(uint8* NamePool)
 
         int32 NotNullptrCount = 0x0;
         bool bFoundFirstPtr = false;
-        constexpr int32 MaxAllowedNumInvalidPtrs = 0x1000;
+        
+        /* Number of invalid pointers we can encounter before we assume that there are no valid pointers anymore. */
+        constexpr int32 MaxAllowedNumInvalidPtrs = 0x500;
         int32 NumPtrsSinceLastValid = 0x0;
 
         for (int j = 0x0; j < 0x10000; j += 8)
@@ -315,28 +291,31 @@ bool NameArray::InitializeNamePool(uint8* NamePool)
         LogError("MaxChunkIndex not found in NamePool");
         return false;
     }
-
-
-    uint8** ChunkArray = reinterpret_cast<uint8**>(NamePool + Off::NameArray::ChunksStart);
-    if (IsBadReadPtr(ChunkArray)) {
+    
+    constexpr uint32 NoneAsUint32 = 0x656E6F4E; // "None"
+    constexpr uint64 CoreUObjAsUint64 = 0x6A624F5565726F43; // "jbOUeroC"
+    
+    uint8_t** ChunkPtr = reinterpret_cast<uint8_t**>(NamePool + Off::NameArray::ChunksStart);
+    
+    if (IsBadReadPtr(ChunkPtr)) {
         LogError("Invalid ChunkPtr in NamePool");
         return false;
     }
 
-    uint8* FirstChunk = *ChunkArray;
+    uint8* FirstChunk = *ChunkPtr;
     if (IsBadReadPtr(FirstChunk)) {
         LogError("Invalid FirstChunk (is bad read). Decryption or Offset failed.");
         return false;
     }
-
+    
+    // "/Script/CoreUObject"
     bool bFoundCoreUObjectString = false;
     int64 FNameEntryHeaderSize = 0x0;
-    constexpr uint32 NoneAsUint32 = 0x656E6F4E; // "None"
-    constexpr uint64 CoreUObjAsUint64 = 0x6A624F5565726F43; // "jbOUeroC"
 
-    for (int i = 0; i < 0x1000; i++)
+    constexpr int32 LoopLimit = 0x1000;
+    for (int i = 0; i < LoopLimit; i++)
     {
-        if (IsBadReadPtr(FirstChunk + i + 8)) break;
+        if (IsBadReadPtr(FirstChunk + i + 8)) continue;
 
         if (*reinterpret_cast<uint32*>(FirstChunk + i) == NoneAsUint32 && FNameEntryHeaderSize == 0)
         {
@@ -377,9 +356,7 @@ bool NameArray::InitializeNamePool(uint8* NamePool)
     };
 
     Settings::Internal::bUseNamePool = true;
-    
-    // Initialize FNameEntry with the found FirstChunk
-    FNameEntry::Init(FirstChunk, FNameEntryHeaderSize);
+    FNameEntry::Init(reinterpret_cast<uint8*>(ChunkPtr), FNameEntryHeaderSize);
 
     LogSuccess("FNamePool initialized successfully");
     return true;
