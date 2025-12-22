@@ -268,7 +268,7 @@ void OffsetFinder::FixupHardcodedOffsets()
 
         if (IsValidPtr(PossibleNextPtrOrBool0) && IsValidPtr(PossibleNextPtrOrBool1) && IsValidPtr(PossibleNextPtrOrBool2))
         {
-            std::cout << "Applaying fix to hardcoded offsets \n" << std::endl;
+            LogInfo("Applying fix to hardcoded offsets");
 
             Settings::Internal::bUseMaskForFieldOwner = true;
 
@@ -871,7 +871,7 @@ int32 OffsetFinder::FindDatatableRowMapOffset()
 
     if (!DataTable)
     {
-        std::cout << "\nDumper-7: [DataTable] Couldn't find \"DataTable\" class, assuming default layout.\n" << std::endl;
+        LogError("\nDumper-7: [DataTable] Couldn't find \"DataTable\" class, assuming default layout.\n");
         return (Off::UObject::Outer + UObjectOuterSize + RowStructSize);
     }
 
@@ -879,7 +879,7 @@ int32 OffsetFinder::FindDatatableRowMapOffset()
 
     if (!RowStructProp)
     {
-        std::cout << "\nDumper-7: [DataTable] Couldn't find \"RowStruct\" property, assuming default layout.\n" << std::endl;
+        LogError("\nDumper-7: [DataTable] Couldn't find \"RowStruct\" property, assuming default layout.\n");
         return (Off::UObject::Outer + UObjectOuterSize + RowStructSize);
     }
 

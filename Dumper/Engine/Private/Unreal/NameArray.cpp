@@ -618,7 +618,7 @@ bool NameArray::TryInit(int32 OffsetOverride, bool bIsNamePool, const char* cons
     if (bIsNameArrayOverride)
     {
         snprintf(buffer, sizeof(buffer), "Overwrote offset: 'TNameEntryArray GNames' set as offset 0x%lX\n", Off::InSDK::NameArray::GNames);
-        std::cout << buffer << std::endl;
+        LogSuccess(buffer);
         GNamesAddress = *reinterpret_cast<uint8**>(ImageBase + Off::InSDK::NameArray::GNames);// Derefernce
         Settings::Internal::bUseNamePool = false;
         bFoundNameArray = true;
@@ -635,7 +635,6 @@ bool NameArray::TryInit(int32 OffsetOverride, bool bIsNamePool, const char* cons
     if (!bFoundNameArray && !bFoundnamePool)
     {
         LogError("\n\nCould not find GNames!\n\n");
-        
         return false;
     }
 
