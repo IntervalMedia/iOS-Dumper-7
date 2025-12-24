@@ -14,6 +14,7 @@
 #include <mach-o/loader.h>
 #include <mach-o/getsect.h>
 #include <dlfcn.h>
+#include "Settings.h"
 
 /* Credits: https://en.cppreference.com/w/cpp/string/byte/tolower */
 inline std::string str_tolower(std::string S)
@@ -816,9 +817,9 @@ inline MemAddress FindUnrealExecFunctionByString(Type RefStr, void* StartAddress
 }
 
 template<bool bCheckIfLeaIsStrPtr = false>
-inline MemAddress FindByWStringInAllSections(const char16_t* RefStr)
+inline MemAddress FindByWStringInAllSections(const TCHAR* RefStr)
 {
-    return FindByStringInAllSections<bCheckIfLeaIsStrPtr, char16_t>(RefStr);
+    return FindByStringInAllSections<bCheckIfLeaIsStrPtr, TCHAR>(RefStr);
 }
 
 namespace FileNameHelper

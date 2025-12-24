@@ -39,7 +39,16 @@ std::string MakeNameValid(UnrealString&& Name)
 	std::u32string Strrr;
 	Strrr += UtfN::utf_cp32_t{ 200 };
 
-    std::u32string Utf32Name = UtfN::Utf16StringToUtf32String<std::u32string>(Name);
+    std::u32string Utf32Name;
+    #if UEVERSION >= 421
+    Utf32Name = UtfN::Utf16StringToUtf32String<std::u32string>(Name);
+    #else
+    Utf32Name.reserve(Name.size());
+    for (TCHAR C : Name)
+    {
+        Utf32Name += static_cast<char32_t>(C);
+    }
+    #endif
 
 	bool bIsFirstIteration = true;
 	for (auto It = UtfN::utf32_iterator<std::u32string::iterator>(Utf32Name); It; ++It)
@@ -56,7 +65,7 @@ std::string MakeNameValid(UnrealString&& Name)
 			It.Replace('_');
 	}
 
-	return  UtfN::Utf32StringToUtf8String<std::string>(Utf32Name);;
+	return UtfN::Utf32StringToUtf8String<std::string>(Utf32Name);;
 }
 
 

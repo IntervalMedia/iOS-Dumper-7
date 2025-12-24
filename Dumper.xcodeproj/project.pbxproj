@@ -25,6 +25,7 @@
 		7ACE2C8728155479001CC0F9 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		7ACE2C8828155479001CC0F9 /* libc.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libc.tbd; path = usr/lib/libc.tbd; sourceTree = SDKROOT; };
 		7ACE2C8928155479001CC0F9 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		DAFD2FE02EFB78A7004EA290 /* ReadMe.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ReadMe.md; sourceTree = "<group>"; };
 		ED14EAE42D900B2D008B4F85 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		ED14EAE62D900B86008B4F85 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -55,6 +56,7 @@
 		7ACE2C0428154406001CC0F9 = {
 			isa = PBXGroup;
 			children = (
+				DAFD2FE02EFB78A7004EA290 /* ReadMe.md */,
 				EDD9C0702DAB0479003B9559 /* Dumper */,
 				7ACE2C8128155461001CC0F9 /* Frameworks */,
 				7ACE2C0E28154406001CC0F9 /* Products */,

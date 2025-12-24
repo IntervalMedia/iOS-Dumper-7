@@ -4,7 +4,7 @@
 
 #include "Unreal/Enums.h"
 
-#define UEVERSION 426
+#define UEVERSION 417
 
 
 #if UEVERSION >= 421
