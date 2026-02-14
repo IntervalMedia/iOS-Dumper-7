@@ -107,9 +107,27 @@ Off::InSDK::ProcessEvent::InitPE(69);
 
 * Contributions are Highly Appreciated for more improvements!
 
-## TODO
+## Recent Improvements
 
-- Find ProcessEvent Offset in the Memory (Not Manual Overwrites)
-- Find NamesArray (For UE below 4.22) in Memory
-- Fix Fallback Methods in Finding FNames (AppendString at UnrealTypes.cpp)
+The following improvements have been implemented to enhance ARM64/iOS support:
+
+### ARM64-Specific Offset Finding
+
+- **ProcessEvent Detection**: Replaced x64 byte patterns with ARM64 instruction analysis
+  - Primary method: Scans for LDR instructions accessing FunctionFlags offset
+  - Fallback 1: Locates ProcessEvent via "Accessed None" string reference
+  - Fallback 2: Heuristic analysis based on function characteristics (call count, load count)
+  
+- **NameArray Finding (UE < 4.22)**: Implemented proper ARM64 instruction decoding
+  - ADRP+ADD pattern analysis for direct GNames address resolution
+  - ADRP+LDR pattern analysis for indirect pointer-based access
+  - Bidirectional scanning around ByteProperty string reference
+  
+- **FName AppendString/ToString**: Enhanced fallback methods with ARM64 patterns
+  - Removed obsolete x64 patterns
+  - Added 8 ARM64-specific patterns for AppendString detection
+  - Enhanced ToString fallback with 6 additional ARM64 patterns
+  - Multiple alternative string references for pattern matching
+  - Comprehensive debug logging for troubleshooting
+
 
