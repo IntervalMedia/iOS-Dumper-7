@@ -74,38 +74,72 @@ FName::FName(const void* Ptr)
 {
 }
 
-// @@TODO: Fix this
 void FName::Init(bool bForceGNames)
 {
 	LogInfo("Initializing FName system%s...", bForceGNames ? " (Forcing GNames)" : "");
 	
-	constexpr std::array<const char*, 6> PossibleSigs =
+	// ARM64-specific patterns for AppendString function
+	// These patterns look for common ARM64 instruction sequences in FName::AppendString
+	constexpr std::array<const char*, 8> PossibleSigs =
 	{
-		"48 8D ? ? 48 8D ? ? E8",
-		"48 8D ? ? ? 48 8D ? ? E8",
-		"48 8D ? ? 49 8B ? E8",
-		"48 8D ? ? ? 49 8B ? E8",
-		"48 8D ? ? 48 8B ? E8"
-		"48 8D ? ? ? 48 8B ? E8",
-        "? ? ? D1 ? ? ? A9 ? ? ? A9 ? ? ? A9 ? ? ? 91 F3 03 00 AA ? ? ? F0 ? ? ? F9 ? ? ? F9 ? ? ? F9 ? ? ? F0",
+		// Pattern 1: Stack frame setup + register saves (common ARM64 function prologue)
+		"? ? ? D1 ? ? ? A9 ? ? ? A9 ? ? ? A9 ? ? ? 91 F3 03 00 AA ? ? ? F0 ? ? ? F9 ? ? ? F9 ? ? ? F9 ? ? ? F0",
+		
+		// Pattern 2: Simpler function prologue with fewer register saves
+		"? ? ? D1 ? ? ? A9 ? ? ? A9 F3 03 00 AA",
+		
+		// Pattern 3: Function with STP (store pair) instructions
+		"FD 7B ? A9 F? ? ? A9 F? ? ? A9 F? ? ? A9",
+		
+		// Pattern 4: Alternative prologue pattern
+		"FF ? ? D1 FD 7B ? A9 F? 03 00 AA",
+		
+		// Pattern 5: Pattern looking for ADRP + ADD for accessing data
+		"? ? ? 90 ? ? ? 91 ? ? 40 F9",
+		
+		// Pattern 6: Branch link pattern (calling another function)
+		"? ? ? 94 ? ? ? F9 ? ? 40 F9",
+		
+		// Pattern 7: Load and compare pattern
+		"? ? 40 F9 ? ? ? B4 ? ? 40 F9",
+		
+		// Pattern 8: Complex pattern with multiple operations
+		"F? 03 00 AA ? ? ? 94 ? ? 40 F9 ? ? 00 F9"
 	};
 
 	LogInfo("Searching for ForwardShadingQuality_ string...");
 	MemAddress StringRef = FindByStringInAllSections("ForwardShadingQuality_");
+	
+	if (!StringRef)
+	{
+		LogInfo("ForwardShadingQuality_ not found, trying alternative strings...");
+		// Try alternative strings that might exist in UE games
+		StringRef = FindByStringInAllSections("r.Shadow.Virtual.Cache.StaticSeparate");
+		if (!StringRef)
+			StringRef = FindByStringInAllSections("r.RayTracing.Shadows");
+	}
+	
 	LogInfo("StringRef: 0x%p", (void*)StringRef);
 
-	LogInfo("Searching for AppendString function using patterns...");
-	int i = 0;
-	while (!AppendString && i < PossibleSigs.size())
+	if (StringRef)
 	{
-		LogInfo("Trying pattern %d: %s", i, PossibleSigs[i]);
-		AppendString = static_cast<void(*)(const void*, FString&)>(StringRef.RelativePattern(PossibleSigs[i], 0x50, -1 /* auto */));
-		if (AppendString)
-			LogSuccess("Found AppendString with pattern %d at 0x%p", i, (void*)AppendString);
-		i++;
+		LogInfo("Searching for AppendString function using ARM64 patterns...");
+		int i = 0;
+		while (!AppendString && i < PossibleSigs.size())
+		{
+			LogInfo("Trying ARM64 pattern %d: %s", i, PossibleSigs[i]);
+			AppendString = static_cast<void(*)(const void*, FString&)>(StringRef.RelativePattern(PossibleSigs[i], 0x80, -1 /* auto */));
+			if (AppendString)
+			{
+				LogSuccess("Found AppendString with ARM64 pattern %d at 0x%p", i, (void*)AppendString);
+				break;
+			}
+			i++;
+		}
+		
+		if (!AppendString)
+			LogInfo("AppendString not found via ARM64 patterns");
 	}
-	if (!AppendString)
-		LogInfo("AppendString not found via patterns");
 
 	Off::InSDK::Name::AppendNameToString = AppendString && !bForceGNames ? GetOffset((void*)AppendString) : 0x0;
 
@@ -214,21 +248,54 @@ void FName::InitFallback()
 
 	MemAddress Conv_NameToStringAddress = FindUnrealExecFunctionByString("Conv_NameToString");
     
-	constexpr std::array<const char*, 2> PossibleSigs =
+	// Enhanced ARM64 patterns for ToString function
+	constexpr std::array<const char*, 6> PossibleSigs =
 	{
+		// Pattern 1: Original pattern with frame setup
         "F4 4F BE A9 FD 7B 01 A9 FD 43 00 91 80 ? ? B4 F3 03 00 AA ? ? ? ? ? ? ? ? 80 02 40 F9",
+        
+        // Pattern 2: Original pattern with epilogue
         "08 00 40 F9 02 1D 40 F9 E1 03 13 AA FD 7B 41 A9 F4 4F C2 A8 40 00 1F D6",
+        
+        // Pattern 3: Alternative prologue pattern
+        "FD 7B ? A9 F? 03 00 AA ? ? 40 F9 ? ? 00 B4",
+        
+        // Pattern 4: Pattern with load and branch
+        "? ? 40 F9 ? ? ? B4 ? ? 40 F9 E? 03 00 AA",
+        
+        // Pattern 5: Function with multiple loads
+        "F? 03 00 AA ? ? 40 F9 ? ? 40 F9 ? ? 00 F9",
+        
+        // Pattern 6: Simple load pattern
+        "? ? 40 F9 ? 1? 40 F9 E? 03 ? AA"
 	};
 
+	LogInfo("Trying to find ToString via fallback method (Conv_NameToString at 0x%p)", (void*)Conv_NameToStringAddress);
+	
 	int i = 0;
 	while (!AppendString && i < PossibleSigs.size())
 	{
+		LogInfo("Trying ToString fallback pattern %d: %s", i, PossibleSigs[i]);
 		AppendString = static_cast<void(*)(const void*, FString&)>(Conv_NameToStringAddress.RelativePattern(PossibleSigs[i], 0x90, -1 /* auto */));
-
+		
+		if (AppendString)
+		{
+			LogSuccess("Found ToString with fallback pattern %d at 0x%p", i, (void*)AppendString);
+			break;
+		}
 		i++;
 	}
 
-	Off::InSDK::Name::AppendNameToString = AppendString ? (int32)GetOffset((void*)AppendString) : 0x0;
+	if (AppendString)
+	{
+		Off::InSDK::Name::AppendNameToString = (int32)GetOffset((void*)AppendString);
+		LogSuccess("ToString fallback successful - Offset: 0x%X", Off::InSDK::Name::AppendNameToString);
+	}
+	else
+	{
+		LogError("ToString fallback failed - could not find function");
+		Off::InSDK::Name::AppendNameToString = 0x0;
+	}
 }
 
 

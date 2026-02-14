@@ -413,9 +413,6 @@ bool NameArray::TryFindNameArray()
 {
     LogInfo("Searching for TNameEntryArray GNames...");
     
-    // iOS: We skip the Windows-specific "kernel32.dll" and "EnterCriticalSection" check.
-    // Instead, we try to locate based on string references.
-    
     auto [Address, bIsGNamesDirectly] = FindFNameGetNamesOrGNames(GetModuleBase());
 
     if (Address == 0x0)
@@ -424,33 +421,124 @@ bool NameArray::TryFindNameArray()
         return false;
     }
 
-    // IOS TODO: Implement proper ARM64 instruction analysis here.
-    // For now, we assume if we found the string, we might need manual verification or
-    // we scan nearby for a pointer that looks like the NameArray.
+    // ARM64 instruction analysis: Look for ADRP+ADD or ADRP+LDR patterns near the string reference
+    // These instructions are used to load the address of GNames
     
-    // Heuristic: Scan nearby memory for a pointer that points to a valid NameArray structure
-    // (NumElements, MaxChunkIndex)
+    LogInfo("[NameArray] Found string reference at 0x%p, analyzing ARM64 instructions...", (void*)Address);
     
-    uintptr ScanStart = Address - 0x200;
-    uintptr ScanEnd = Address + 0x200;
+    // Helper lambda to resolve ARM64 ADRP+ADD pair
+    auto ResolveARM64Adr = [](uintptr AdrpAddr, uint32 AdrpInst, uint32 AddInst) -> uintptr {
+        // Decode ADRP (Page Address)
+        uint64 immhi = (AdrpInst >> 5) & 0x7FFFF;
+        uint64 immlo = (AdrpInst >> 29) & 0x3;
+        // Sign-extend 21-bit immediate to 64-bit using shift method
+        int64 imm = ((int64)((immhi << 2) | immlo) << 43) >> 31;
+        // ADRP calculates relative to the 4KB page of the PC
+        uintptr PageBase = AdrpAddr & ~0xFFF;
+        uintptr BaseAddr = PageBase + imm;
+        // Decode ADD (Page Offset)
+        uint32 imm12 = (AddInst >> 10) & 0xFFF;
+        return BaseAddr + imm12;
+    };
     
-    // Safety clamp
-    if (ScanStart < GetModuleBase()) ScanStart = GetModuleBase();
+    // Scan around the string reference for ADRP+ADD or ADRP+LDR patterns
+    constexpr int32 ScanRange = 0x200;
+    constexpr uint32 MaskADRP = 0x9F000000;
+    constexpr uint32 OpcodeADRP = 0x90000000;
+    constexpr uint32 MaskADD = 0xFFC00000;
+    constexpr uint32 OpcodeADD = 0x91000000;
+    constexpr uint32 MaskLDR = 0xFFC00000;
+    constexpr uint32 OpcodeLDR = 0xF9400000; // 64-bit LDR
     
-    for (uintptr Ptr = ScanStart; Ptr < ScanEnd; Ptr += 8) {
-         if (IsBadReadPtr(Ptr)) continue;
-         
-         // Candidate for GNames pointer?
-         void* Candidate = *reinterpret_cast<void**>(Ptr);
-         if (IsBadReadPtr(Candidate)) continue;
-         
-         // Check if it looks like a NameArray
-         if (NameArray::InitializeNameArray((uint8*)Candidate)) {
-             Off::InSDK::NameArray::GNames = (int32)GetOffset(Ptr);
-             return true;
-         }
+    // Try forward and backward from the string reference
+    for (int direction = -1; direction <= 1; direction += 2)
+    {
+        for (int i = 4; i < ScanRange; i += 4)
+        {
+            uintptr CurrentAddr = Address + (i * direction);
+            if (IsBadReadPtr(CurrentAddr)) continue;
+            
+            uint32 Inst = *reinterpret_cast<uint32*>(CurrentAddr);
+            
+            // Is this an ADRP instruction?
+            if ((Inst & MaskADRP) != OpcodeADRP) continue;
+            
+            // Check the next instruction
+            uintptr NextAddr = CurrentAddr + 4;
+            if (IsBadReadPtr(NextAddr)) continue;
+            
+            uint32 NextInst = *reinterpret_cast<uint32*>(NextAddr);
+            
+            // Extract destination register from ADRP
+            uint32 AdrpReg = Inst & 0x1F;
+            
+            // Case 1: ADRP + ADD (direct address load)
+            if ((NextInst & MaskADD) == OpcodeADD)
+            {
+                uint32 AddBaseReg = (NextInst >> 5) & 0x1F;
+                uint32 AddDestReg = NextInst & 0x1F;
+                
+                // Verify registers match
+                if (AdrpReg == AddBaseReg && AdrpReg == AddDestReg)
+                {
+                    uintptr ResolvedAddr = ResolveARM64Adr(CurrentAddr, Inst, NextInst);
+                    LogInfo("[NameArray] Found ADRP+ADD pattern at 0x%p -> 0x%p", (void*)CurrentAddr, (void*)ResolvedAddr);
+                    
+                    if (!IsBadReadPtr(ResolvedAddr))
+                    {
+                        // Try to initialize NameArray with this address
+                        if (NameArray::InitializeNameArray((uint8*)ResolvedAddr))
+                        {
+                            Off::InSDK::NameArray::GNames = (int32)GetOffset(ResolvedAddr);
+                            LogSuccess("[NameArray] GNames found via ADRP+ADD at offset 0x%X", Off::InSDK::NameArray::GNames);
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Case 2: ADRP + LDR (indirect address load via pointer)
+            else if ((NextInst & MaskLDR) == OpcodeLDR)
+            {
+                uint32 LdrBaseReg = (NextInst >> 5) & 0x1F;
+                
+                // Verify registers match
+                if (AdrpReg == LdrBaseReg)
+                {
+                    // Decode ADRP page address
+                    uint64 immhi = (Inst >> 5) & 0x7FFFF;
+                    uint64 immlo = (Inst >> 29) & 0x3;
+                    // Sign-extend 21-bit immediate to 64-bit using shift method
+                    int64 imm = ((int64)((immhi << 2) | immlo) << 43) >> 31;
+                    uintptr PageBase = CurrentAddr & ~0xFFF;
+                    uintptr BaseAddr = PageBase + imm;
+                    
+                    // Decode LDR offset
+                    uint32 imm12 = (NextInst >> 10) & 0xFFF;
+                    uint32 offset = imm12 << 3; // Scale for 64-bit
+                    
+                    uintptr PtrAddr = BaseAddr + offset;
+                    LogInfo("[NameArray] Found ADRP+LDR pattern at 0x%p -> ptr at 0x%p", (void*)CurrentAddr, (void*)PtrAddr);
+                    
+                    if (!IsBadReadPtr(PtrAddr))
+                    {
+                        void* NameArrayPtr = *reinterpret_cast<void**>(PtrAddr);
+                        if (!IsBadReadPtr(NameArrayPtr))
+                        {
+                            // Try to initialize NameArray with the dereferenced address
+                            if (NameArray::InitializeNameArray((uint8*)NameArrayPtr))
+                            {
+                                Off::InSDK::NameArray::GNames = (int32)GetOffset(PtrAddr);
+                                LogSuccess("[NameArray] GNames found via ADRP+LDR at offset 0x%X", Off::InSDK::NameArray::GNames);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
+    LogError("[NameArray] Could not find GNames via ARM64 instruction analysis");
     return false;
 }
 
