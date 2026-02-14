@@ -1,0 +1,19 @@
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserdatad
+
+# macOS
+.DS_Store
+
+# Theos build artifacts
+.theos/
+obj/
+packages/
+*.deb
+
+# Build artifacts
+*.dylib
+*.o
+*.a

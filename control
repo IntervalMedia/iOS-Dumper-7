@@ -1,0 +1,8 @@
+Package: com.intervalmedia.dumper
+Name: iOS-Dumper-7
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Runtime SDK generator for Unreal Engine games on iOS
+Maintainer: Aethereux
+Author: Aethereux (Based on Dumper-7 by Encryqed)
+Section: Development
