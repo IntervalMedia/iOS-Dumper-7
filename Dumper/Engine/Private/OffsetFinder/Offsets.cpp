@@ -14,7 +14,7 @@ void Off::InSDK::ProcessEvent::InitPE()
 	void** Vft = *(void***)ObjectArray::GetByIndex(0).GetAddress();
 
 	/* Primary check for ProcessEvent using ARM64-specific patterns */
-	auto IsProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+	auto IsProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32 Index) -> bool
 	{
 		// On ARM64, look for LDR instructions accessing FunctionFlags offset
 		// Pattern 1: Check for FUNC_Native (0x400) flag check
@@ -26,15 +26,15 @@ void Off::InSDK::ProcessEvent::InitPE()
 		{
 			if (IsBadReadPtr(FuncAddress + i)) break;
 			
-			const uint32_t Instr = *reinterpret_cast<const uint32_t*>(FuncAddress + i);
+			const uint32 Instr = *reinterpret_cast<const uint32*>(FuncAddress + i);
 			
 			// Check for LDR instruction (load register from memory)
 			// LDR Wt, [Xn, #imm] pattern: 0xB9400000 (32-bit) or 0xF9400000 (64-bit)
 			if ((Instr & 0xFFC00000) == 0xB9400000 || (Instr & 0xFFC00000) == 0xF9400000)
 			{
 				// Extract the immediate offset (12-bit value, bits 21-10)
-				uint32_t imm12 = (Instr >> 10) & 0xFFF;
-				uint32_t offset = ((Instr & 0xFFC00000) == 0xF9400000) ? (imm12 << 3) : (imm12 << 2);
+				uint32 imm12 = (Instr >> 10) & 0xFFF;
+				uint32 offset = ((Instr & 0xFFC00000) == 0xF9400000) ? (imm12 << 3) : (imm12 << 2);
 				
 				// Check if this offset matches FunctionFlags
 				if (offset == Off::UFunction::FunctionFlags)
@@ -46,7 +46,7 @@ void Off::InSDK::ProcessEvent::InitPE()
 	};
 
 	const void* ProcessEventAddr = nullptr;
-	int32_t ProcessEventIdx = 0;
+	int32 ProcessEventIdx = 0;
 
 	auto [FuncPtr, FuncIdx] = IterateVTableFunctions(Vft, IsProcessEvent);
 
@@ -60,7 +60,7 @@ void Off::InSDK::ProcessEvent::InitPE()
 
 		if (PossiblePEAddr)
 		{
-			auto IsSameAddr = [PossiblePEAddr](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+			auto IsSameAddr = [PossiblePEAddr](const uint8_t* FuncAddress, [[maybe_unused]] int32 Index) -> bool
 			{
 				return FuncAddress == PossiblePEAddr;
 			};
@@ -75,17 +75,17 @@ void Off::InSDK::ProcessEvent::InitPE()
 	{
 		/* Fallback 2: Look for functions that have specific characteristics of ProcessEvent */
 		/* ProcessEvent typically has a large function body and makes many calls */
-		auto IsLikelyProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+		auto IsLikelyProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32 Index) -> bool
 		{
-			int32_t CallCount = 0;
-			int32_t LoadCount = 0;
+			int32 CallCount = 0;
+			int32 LoadCount = 0;
 			
 			// Scan first 0x800 bytes of the function
 			for (int i = 0; i < 0x800; i += 4)
 			{
 				if (IsBadReadPtr(FuncAddress + i)) break;
 				
-				const uint32_t Instr = *reinterpret_cast<const uint32_t*>(FuncAddress + i);
+				const uint32 Instr = *reinterpret_cast<const uint32*>(FuncAddress + i);
 				
 				// Count BL (branch with link) instructions - function calls
 				if ((Instr & 0xFC000000) == 0x94000000)

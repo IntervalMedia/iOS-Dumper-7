@@ -429,61 +429,61 @@ bool NameArray::TryFindNameArray()
     // Helper lambda to resolve ARM64 ADRP+ADD pair
     auto ResolveARM64Adr = [](uintptr AdrpAddr, uint32 AdrpInst, uint32 AddInst) -> uintptr {
         // Decode ADRP (Page Address)
-        int32_t immlo = (AdrpInst >> 29) & 0x3;
-        int32_t immhi = (AdrpInst >> 5) & 0x7FFFF;
-        int64_t imm = (immhi << 2) | immlo;
+        int32 immlo = (AdrpInst >> 29) & 0x3;
+        int32 immhi = (AdrpInst >> 5) & 0x7FFFF;
+        int64 imm = (immhi << 2) | immlo;
         // Sign extend 21-bit immediate to 64-bit
         if (imm & 0x100000) imm |= ~0xFFFFF;
         // ADRP calculates relative to the 4KB page of the PC
-        uintptr_t PageBase = AdrpAddr & ~0xFFF;
-        uintptr_t PageOffset = imm << 12;
-        uintptr_t BaseAddr = PageBase + PageOffset;
+        uintptr PageBase = AdrpAddr & ~0xFFF;
+        uintptr PageOffset = imm << 12;
+        uintptr BaseAddr = PageBase + PageOffset;
         // Decode ADD (Page Offset)
-        uint32_t imm12 = (AddInst >> 10) & 0xFFF;
+        uint32 imm12 = (AddInst >> 10) & 0xFFF;
         return BaseAddr + imm12;
     };
     
     // Scan around the string reference for ADRP+ADD or ADRP+LDR patterns
-    constexpr int32_t ScanRange = 0x200;
-    constexpr uint32_t MaskADRP = 0x9F000000;
-    constexpr uint32_t OpcodeADRP = 0x90000000;
-    constexpr uint32_t MaskADD = 0xFFC00000;
-    constexpr uint32_t OpcodeADD = 0x91000000;
-    constexpr uint32_t MaskLDR = 0xFFC00000;
-    constexpr uint32_t OpcodeLDR = 0xF9400000; // 64-bit LDR
+    constexpr int32 ScanRange = 0x200;
+    constexpr uint32 MaskADRP = 0x9F000000;
+    constexpr uint32 OpcodeADRP = 0x90000000;
+    constexpr uint32 MaskADD = 0xFFC00000;
+    constexpr uint32 OpcodeADD = 0x91000000;
+    constexpr uint32 MaskLDR = 0xFFC00000;
+    constexpr uint32 OpcodeLDR = 0xF9400000; // 64-bit LDR
     
     // Try forward and backward from the string reference
     for (int direction = -1; direction <= 1; direction += 2)
     {
         for (int i = 4; i < ScanRange; i += 4)
         {
-            uintptr_t CurrentAddr = Address + (i * direction);
+            uintptr CurrentAddr = Address + (i * direction);
             if (IsBadReadPtr(CurrentAddr)) continue;
             
-            uint32_t Inst = *reinterpret_cast<uint32_t*>(CurrentAddr);
+            uint32 Inst = *reinterpret_cast<uint32*>(CurrentAddr);
             
             // Is this an ADRP instruction?
             if ((Inst & MaskADRP) != OpcodeADRP) continue;
             
             // Check the next instruction
-            uintptr_t NextAddr = CurrentAddr + 4;
+            uintptr NextAddr = CurrentAddr + 4;
             if (IsBadReadPtr(NextAddr)) continue;
             
-            uint32_t NextInst = *reinterpret_cast<uint32_t*>(NextAddr);
+            uint32 NextInst = *reinterpret_cast<uint32*>(NextAddr);
             
             // Extract destination register from ADRP
-            uint32_t AdrpReg = Inst & 0x1F;
+            uint32 AdrpReg = Inst & 0x1F;
             
             // Case 1: ADRP + ADD (direct address load)
             if ((NextInst & MaskADD) == OpcodeADD)
             {
-                uint32_t AddBaseReg = (NextInst >> 5) & 0x1F;
-                uint32_t AddDestReg = NextInst & 0x1F;
+                uint32 AddBaseReg = (NextInst >> 5) & 0x1F;
+                uint32 AddDestReg = NextInst & 0x1F;
                 
                 // Verify registers match
                 if (AdrpReg == AddBaseReg && AdrpReg == AddDestReg)
                 {
-                    uintptr_t ResolvedAddr = ResolveARM64Adr(CurrentAddr, Inst, NextInst);
+                    uintptr ResolvedAddr = ResolveARM64Adr(CurrentAddr, Inst, NextInst);
                     LogInfo("[NameArray] Found ADRP+ADD pattern at 0x%p -> 0x%p", (void*)CurrentAddr, (void*)ResolvedAddr);
                     
                     if (!IsBadReadPtr(ResolvedAddr))
@@ -501,24 +501,24 @@ bool NameArray::TryFindNameArray()
             // Case 2: ADRP + LDR (indirect address load via pointer)
             else if ((NextInst & MaskLDR) == OpcodeLDR)
             {
-                uint32_t LdrBaseReg = (NextInst >> 5) & 0x1F;
+                uint32 LdrBaseReg = (NextInst >> 5) & 0x1F;
                 
                 // Verify registers match
                 if (AdrpReg == LdrBaseReg)
                 {
                     // Decode ADRP page address
-                    int32_t immlo = (Inst >> 29) & 0x3;
-                    int32_t immhi = (Inst >> 5) & 0x7FFFF;
-                    int64_t imm = (immhi << 2) | immlo;
+                    int32 immlo = (Inst >> 29) & 0x3;
+                    int32 immhi = (Inst >> 5) & 0x7FFFF;
+                    int64 imm = (immhi << 2) | immlo;
                     if (imm & 0x100000) imm |= ~0xFFFFF;
-                    uintptr_t PageBase = CurrentAddr & ~0xFFF;
-                    uintptr_t BaseAddr = PageBase + (imm << 12);
+                    uintptr PageBase = CurrentAddr & ~0xFFF;
+                    uintptr BaseAddr = PageBase + (imm << 12);
                     
                     // Decode LDR offset
-                    uint32_t imm12 = (NextInst >> 10) & 0xFFF;
-                    uint32_t offset = imm12 << 3; // Scale for 64-bit
+                    uint32 imm12 = (NextInst >> 10) & 0xFFF;
+                    uint32 offset = imm12 << 3; // Scale for 64-bit
                     
-                    uintptr_t PtrAddr = BaseAddr + offset;
+                    uintptr PtrAddr = BaseAddr + offset;
                     LogInfo("[NameArray] Found ADRP+LDR pattern at 0x%p -> ptr at 0x%p", (void*)CurrentAddr, (void*)PtrAddr);
                     
                     if (!IsBadReadPtr(PtrAddr))
