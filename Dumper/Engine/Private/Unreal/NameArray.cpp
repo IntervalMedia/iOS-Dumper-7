@@ -429,15 +429,13 @@ bool NameArray::TryFindNameArray()
     // Helper lambda to resolve ARM64 ADRP+ADD pair
     auto ResolveARM64Adr = [](uintptr AdrpAddr, uint32 AdrpInst, uint32 AddInst) -> uintptr {
         // Decode ADRP (Page Address)
-        int32 immlo = (AdrpInst >> 29) & 0x3;
-        int32 immhi = (AdrpInst >> 5) & 0x7FFFF;
-        int64 imm = (immhi << 2) | immlo;
-        // Sign extend 21-bit immediate to 64-bit
-        if (imm & 0x100000) imm |= ~0x1FFFFF;
+        uint64 immhi = (AdrpInst >> 5) & 0x7FFFF;
+        uint64 immlo = (AdrpInst >> 29) & 0x3;
+        // Sign-extend 21-bit immediate to 64-bit using shift method
+        int64 imm = ((int64)((immhi << 2) | immlo) << 43) >> 31;
         // ADRP calculates relative to the 4KB page of the PC
         uintptr PageBase = AdrpAddr & ~0xFFF;
-        uintptr PageOffset = imm << 12;
-        uintptr BaseAddr = PageBase + PageOffset;
+        uintptr BaseAddr = PageBase + imm;
         // Decode ADD (Page Offset)
         uint32 imm12 = (AddInst >> 10) & 0xFFF;
         return BaseAddr + imm12;
@@ -507,12 +505,12 @@ bool NameArray::TryFindNameArray()
                 if (AdrpReg == LdrBaseReg)
                 {
                     // Decode ADRP page address
-                    int32 immlo = (Inst >> 29) & 0x3;
-                    int32 immhi = (Inst >> 5) & 0x7FFFF;
-                    int64 imm = (immhi << 2) | immlo;
-                    if (imm & 0x100000) imm |= ~0x1FFFFF;
+                    uint64 immhi = (Inst >> 5) & 0x7FFFF;
+                    uint64 immlo = (Inst >> 29) & 0x3;
+                    // Sign-extend 21-bit immediate to 64-bit using shift method
+                    int64 imm = ((int64)((immhi << 2) | immlo) << 43) >> 31;
                     uintptr PageBase = CurrentAddr & ~0xFFF;
-                    uintptr BaseAddr = PageBase + (imm << 12);
+                    uintptr BaseAddr = PageBase + imm;
                     
                     // Decode LDR offset
                     uint32 imm12 = (NextInst >> 10) & 0xFFF;
