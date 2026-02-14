@@ -9,16 +9,40 @@
 #include "Unreal/NameArray.h"
 #include "Menu/Logger.h"
 
-// @@TODO: Fix this shit for now init it manually
 void Off::InSDK::ProcessEvent::InitPE()
 {
 	void** Vft = *(void***)ObjectArray::GetByIndex(0).GetAddress();
 
-	/* Primary, and more reliable, check for ProcessEvent */
+	/* Primary check for ProcessEvent using ARM64-specific patterns */
 	auto IsProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
 	{
-		return FindPatternInRange({ 0xF7, -0x1, Off::UFunction::FunctionFlags, 0x0, 0x0, 0x0, 0x0, 0x04, 0x0, 0x0 }, FuncAddress, 0x400)
-			&& FindPatternInRange({ 0xF7, -0x1, Off::UFunction::FunctionFlags, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x0 }, FuncAddress, 0xF00);
+		// On ARM64, look for LDR instructions accessing FunctionFlags offset
+		// Pattern 1: Check for FUNC_Native (0x400) flag check
+		// Pattern 2: Check for FUNC_RequiredAPI (0x40000000) flag check
+		// These are common checks in ProcessEvent
+		
+		// Look for memory access at FunctionFlags offset
+		for (int i = 0; i < 0x400; i += 4)
+		{
+			if (IsBadReadPtr(FuncAddress + i)) break;
+			
+			const uint32_t Instr = *reinterpret_cast<const uint32_t*>(FuncAddress + i);
+			
+			// Check for LDR instruction (load register from memory)
+			// LDR Wt, [Xn, #imm] pattern: 0xB9400000 (32-bit) or 0xF9400000 (64-bit)
+			if ((Instr & 0xFFC00000) == 0xB9400000 || (Instr & 0xFFC00000) == 0xF9400000)
+			{
+				// Extract the immediate offset (12-bit value, bits 21-10)
+				uint32_t imm12 = (Instr >> 10) & 0xFFF;
+				uint32_t offset = ((Instr & 0xFFC00000) == 0xF9400000) ? (imm12 << 3) : (imm12 << 2);
+				
+				// Check if this offset matches FunctionFlags
+				if (offset == Off::UFunction::FunctionFlags)
+					return true;
+			}
+		}
+		
+		return false;
 	};
 
 	const void* ProcessEventAddr = nullptr;
@@ -31,17 +55,54 @@ void Off::InSDK::ProcessEvent::InitPE()
 
 	if (!FuncPtr)
 	{
-		/* ProcessEvent is sometimes located right after a func with the string L"Accessed None. Might as well check for it, because else we're going to crash anyways. */
+		/* Fallback 1: ProcessEvent is sometimes located right after a func with the string "Accessed None" */
 		void* PossiblePEAddr = (void*)FindByWStringInAllSections(TEXT("Accessed None")).FindNextFunctionStart();
 
-		auto IsSameAddr = [PossiblePEAddr](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+		if (PossiblePEAddr)
 		{
-			return FuncAddress == PossiblePEAddr;
+			auto IsSameAddr = [PossiblePEAddr](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+			{
+				return FuncAddress == PossiblePEAddr;
+			};
+
+			auto [FuncPtr2, FuncIdx2] = IterateVTableFunctions(Vft, IsSameAddr);
+			ProcessEventAddr = FuncPtr2;
+			ProcessEventIdx = FuncIdx2;
+		}
+	}
+
+	if (!ProcessEventAddr)
+	{
+		/* Fallback 2: Look for functions that have specific characteristics of ProcessEvent */
+		/* ProcessEvent typically has a large function body and makes many calls */
+		auto IsLikelyProcessEvent = [](const uint8_t* FuncAddress, [[maybe_unused]] int32_t Index) -> bool
+		{
+			int32_t CallCount = 0;
+			int32_t LoadCount = 0;
+			
+			// Scan first 0x800 bytes of the function
+			for (int i = 0; i < 0x800; i += 4)
+			{
+				if (IsBadReadPtr(FuncAddress + i)) break;
+				
+				const uint32_t Instr = *reinterpret_cast<const uint32_t*>(FuncAddress + i);
+				
+				// Count BL (branch with link) instructions - function calls
+				if ((Instr & 0xFC000000) == 0x94000000)
+					CallCount++;
+				
+				// Count LDR instructions - memory loads
+				if ((Instr & 0xFFC00000) == 0xB9400000 || (Instr & 0xFFC00000) == 0xF9400000)
+					LoadCount++;
+			}
+			
+			// ProcessEvent typically has many calls (>10) and loads (>20)
+			return CallCount > 10 && LoadCount > 20;
 		};
 
-		auto [FuncPtr2, FuncIdx2] = IterateVTableFunctions(Vft, IsSameAddr);
-		ProcessEventAddr = FuncPtr2;
-		ProcessEventIdx = FuncIdx2;
+		auto [FuncPtr3, FuncIdx3] = IterateVTableFunctions(Vft, IsLikelyProcessEvent);
+		ProcessEventAddr = FuncPtr3;
+		ProcessEventIdx = FuncIdx3;
 	}
 
 	if (ProcessEventAddr)
