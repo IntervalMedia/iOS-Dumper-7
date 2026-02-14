@@ -433,7 +433,7 @@ bool NameArray::TryFindNameArray()
         int32 immhi = (AdrpInst >> 5) & 0x7FFFF;
         int64 imm = (immhi << 2) | immlo;
         // Sign extend 21-bit immediate to 64-bit
-        if (imm & 0x100000) imm |= ~0xFFFFF;
+        if (imm & 0x100000) imm |= ~0x1FFFFF;
         // ADRP calculates relative to the 4KB page of the PC
         uintptr PageBase = AdrpAddr & ~0xFFF;
         uintptr PageOffset = imm << 12;
@@ -510,7 +510,7 @@ bool NameArray::TryFindNameArray()
                     int32 immlo = (Inst >> 29) & 0x3;
                     int32 immhi = (Inst >> 5) & 0x7FFFF;
                     int64 imm = (immhi << 2) | immlo;
-                    if (imm & 0x100000) imm |= ~0xFFFFF;
+                    if (imm & 0x100000) imm |= ~0x1FFFFF;
                     uintptr PageBase = CurrentAddr & ~0xFFF;
                     uintptr BaseAddr = PageBase + (imm << 12);
                     

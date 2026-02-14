@@ -30,11 +30,15 @@ void Off::InSDK::ProcessEvent::InitPE()
 			
 			// Check for LDR instruction (load register from memory)
 			// LDR Wt, [Xn, #imm] pattern: 0xB9400000 (32-bit) or 0xF9400000 (64-bit)
-			if ((Instr & 0xFFC00000) == 0xB9400000 || (Instr & 0xFFC00000) == 0xF9400000)
+			bool is32BitLdr = (Instr & 0xFFC00000) == 0xB9400000;
+			bool is64BitLdr = (Instr & 0xFFC00000) == 0xF9400000;
+			
+			if (is32BitLdr || is64BitLdr)
 			{
 				// Extract the immediate offset (12-bit value, bits 21-10)
 				uint32 imm12 = (Instr >> 10) & 0xFFF;
-				uint32 offset = ((Instr & 0xFFC00000) == 0xF9400000) ? (imm12 << 3) : (imm12 << 2);
+				uint32 scale = is64BitLdr ? 3 : 2;
+				uint32 offset = imm12 << scale;
 				
 				// Check if this offset matches FunctionFlags
 				if (offset == Off::UFunction::FunctionFlags)
