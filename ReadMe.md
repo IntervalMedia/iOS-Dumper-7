@@ -9,13 +9,28 @@
 * **Broad Compatibility**: Tested on Unreal Engine versions **4.17** to **4.26** (e.g., ARK 2.0, Ark Revamp, Special Forces 3).
 * **Floating UI**: Uses a draggable floating button to toggle the menu, avoiding conflict with game gestures.
 
+## Prerequisites
+
+* [Theos](https://theos.dev/docs/installation) - iOS/macOS development toolkit
+* iOS SDK (comes with Xcode Command Line Tools)
+
 ## Usage
 
 ### 1. Build
 
-1. Open the project in **Xcode**.
-2. Select your signing identity.
-3. Build the project to generate the `.dylib` file (e.g., `Dumper.dylib`).
+This project uses the **Theos** build system. To build:
+
+```bash
+make
+```
+
+This will generate `Dumper.dylib` in the `.theos/obj/debug/` directory.
+
+To create a package (.deb):
+
+```bash
+make package
+```
 
 ### 2. Inject
 
